@@ -39,8 +39,24 @@ const overlay = document.getElementById('overlay');
 const overlayTitle = document.getElementById('overlay-title');
 const overlayScore = document.getElementById('overlay-score');
 const restartBtn = document.getElementById('restart-btn');
+const themeToggle = document.getElementById('theme-toggle');
 
 let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId;
+let themeColors = { grid: '#22222e', highlight: 'rgba(255,255,255,0.12)' };
+
+const THEME_STORAGE_KEY = 'tetris-theme';
+
+function refreshThemeColors() {
+  const styles = getComputedStyle(document.body);
+  themeColors.grid = styles.getPropertyValue('--grid-line').trim();
+  themeColors.highlight = styles.getPropertyValue('--block-highlight').trim();
+}
+
+function applyTheme(theme) {
+  document.body.classList.toggle('light', theme === 'light');
+  themeToggle.checked = theme === 'light';
+  refreshThemeColors();
+}
 
 function createBoard() {
   return Array.from({ length: ROWS }, () => new Array(COLS).fill(0));
@@ -163,13 +179,13 @@ function drawBlock(context, x, y, colorIndex, size, alpha) {
   context.fillStyle = color;
   context.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
   // highlight
-  context.fillStyle = 'rgba(255,255,255,0.12)';
+  context.fillStyle = themeColors.highlight;
   context.fillRect(x * size + 1, y * size + 1, size - 2, 4);
   context.globalAlpha = 1;
 }
 
 function drawGrid() {
-  ctx.strokeStyle = '#22222e';
+  ctx.strokeStyle = themeColors.grid;
   ctx.lineWidth = 0.5;
   for (let c = 1; c < COLS; c++) {
     ctx.beginPath();
@@ -301,4 +317,13 @@ document.addEventListener('keydown', e => {
 
 restartBtn.addEventListener('click', init);
 
+themeToggle.addEventListener('change', () => {
+  const theme = themeToggle.checked ? 'light' : 'dark';
+  localStorage.setItem(THEME_STORAGE_KEY, theme);
+  applyTheme(theme);
+  draw();
+  drawNext();
+});
+
+applyTheme(localStorage.getItem(THEME_STORAGE_KEY) === 'light' ? 'light' : 'dark');
 init();
