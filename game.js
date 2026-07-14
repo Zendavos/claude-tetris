@@ -263,17 +263,29 @@ function applyPowerUp(piece) {
       for (let r = 0; r < ROWS; r++) board[r][x] = 0;
       break;
     case 'tint': {
-      const counts = new Array(COLORS.length).fill(0);
-      for (let r = 0; r < ROWS; r++)
-        for (let c = 0; c < COLS; c++)
-          if (board[r][c]) counts[board[r][c]]++;
-      let target = 0;
-      for (let i = 1; i < counts.length; i++) if (counts[i] > counts[target]) target = i;
-      if (target) {
-        for (let r = 0; r < ROWS; r++)
-          for (let c = 0; c < COLS; c++)
-            if (board[r][c] === target) board[r][c] = 0;
+      // Elimina, por cada bloque inmediatamente adyacente (arriba/abajo/izq/der)
+      // al bloque de tinte, todo el grupo de bloques del mismo color conectados
+      // a él (4-direcciones). Si no hay bloques adyacentes, no hace nada.
+      const visited = new Set();
+      let removed = 0;
+      const neighbors = [[x, y - 1], [x, y + 1], [x - 1, y], [x + 1, y]];
+      for (const [nx, ny] of neighbors) {
+        if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS) continue;
+        const colorVal = board[ny][nx];
+        if (!colorVal || visited.has(ny * COLS + nx)) continue;
+        const stack = [[nx, ny]];
+        while (stack.length) {
+          const [cx, cy] = stack.pop();
+          if (cx < 0 || cx >= COLS || cy < 0 || cy >= ROWS) continue;
+          const key = cy * COLS + cx;
+          if (visited.has(key) || board[cy][cx] !== colorVal) continue;
+          visited.add(key);
+          board[cy][cx] = 0;
+          removed++;
+          stack.push([cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]);
+        }
       }
+      if (removed === 0) return; // sin bloques adyacentes: no hace nada
       break;
     }
     case 'gravity':
@@ -399,17 +411,36 @@ function drawBlock(context, x, y, colorIndex, size, alpha) {
   context.globalAlpha = 1;
 }
 
+const RAINBOW_STOPS = ['#ff5252', '#ff9800', '#ffee58', '#66bb6a', '#42a5f5', '#ab47bc'];
+
 function drawPowerUpBlock(context, x, y, powerup, size, alpha) {
-  const { color, icon } = POWERUPS[powerup];
+  const { icon } = POWERUPS[powerup];
+  const px = x * size + 1;
+  const py = y * size + 1;
+  const s = size - 2;
   context.globalAlpha = alpha ?? 1;
-  context.fillStyle = color;
-  context.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
+  const grad = context.createLinearGradient(px, py, px + s, py + s);
+  RAINBOW_STOPS.forEach((c, i) => grad.addColorStop(i / (RAINBOW_STOPS.length - 1), c));
+  context.fillStyle = grad;
+  context.fillRect(px, py, s, s);
   context.fillStyle = themeColors.highlight;
-  context.fillRect(x * size + 1, y * size + 1, size - 2, 4);
-  context.font = `${Math.floor(size * 0.6)}px sans-serif`;
+  context.fillRect(px, py, s, 4);
+  const cx = x * size + size / 2;
+  const cy = y * size + size / 2;
+  // icono siempre 100% opaco para que sea legible (incluso sobre el ghost)
+  context.globalAlpha = 1;
+  // disco oscuro detrás del icono para que contraste sobre el arcoíris
+  context.fillStyle = 'rgba(0, 0, 0, 0.55)';
+  context.beginPath();
+  context.arc(cx, cy, size * 0.34, 0, Math.PI * 2);
+  context.fill();
+  context.font = `${Math.floor(size * 0.5)}px sans-serif`;
   context.textAlign = 'center';
   context.textBaseline = 'middle';
-  context.fillText(icon, x * size + size / 2, y * size + size / 2 + 1);
+  context.shadowColor = 'rgba(0, 0, 0, 0.8)';
+  context.shadowBlur = 3;
+  context.fillText(icon, cx, cy + 1);
+  context.shadowBlur = 0;
   context.globalAlpha = 1;
 }
 
