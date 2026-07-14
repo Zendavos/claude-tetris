@@ -29,6 +29,11 @@ const PIECES = [
 ];
 
 const LINE_SCORES = [0, 100, 300, 500, 800];
+const TSPIN_SCORES = [100, 800, 1200, 1600]; // [mini, single, double, triple]
+const PERFECT_CLEAR_SCORES = [0, 800, 1200, 1800, 2000];
+const COMBO_BONUS = 50;
+const B2B_MULTIPLIER = 1.5;
+const T_PIECE_TYPE = 3;
 
 const canvas = document.getElementById('board');
 const ctx = canvas.getContext('2d');
@@ -42,11 +47,18 @@ const overlayTitle = document.getElementById('overlay-title');
 const overlayScore = document.getElementById('overlay-score');
 const restartBtn = document.getElementById('restart-btn');
 const themeToggle = document.getElementById('theme-toggle');
+const soundToggle = document.getElementById('sound-toggle');
+const comboEl = document.getElementById('combo');
+const comboPopup = document.getElementById('combo-popup');
+const boardWrap = document.querySelector('.board-wrap');
 
 let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId;
+let comboCount, b2b, lastMoveWasRotate;
+let audioCtx, soundEnabled;
 let themeColors = { grid: '#22222e', highlight: 'rgba(255,255,255,0.12)' };
 
 const THEME_STORAGE_KEY = 'tetris-theme';
+const SOUND_STORAGE_KEY = 'tetris-sound';
 
 function refreshThemeColors() {
   const styles = getComputedStyle(document.body);
@@ -108,9 +120,23 @@ function tryRotate() {
     if (!collide(rotated, current.x + kick, current.y)) {
       current.shape = rotated;
       current.x += kick;
+      lastMoveWasRotate = true;
       return;
     }
   }
+}
+
+function isTSpin() {
+  if (current.type !== T_PIECE_TYPE || !lastMoveWasRotate) return false;
+  const corners = [[0, 0], [2, 0], [0, 2], [2, 2]];
+  let filled = 0;
+  for (const [dx, dy] of corners) {
+    const x = current.x + dx;
+    const y = current.y + dy;
+    if (x < 0 || x >= COLS || y >= ROWS) { filled++; continue; }
+    if (y >= 0 && board[y][x]) filled++;
+  }
+  return filled >= 3;
 }
 
 function merge() {
@@ -120,7 +146,7 @@ function merge() {
         board[current.y + r][current.x + c] = current.shape[r][c];
 }
 
-function clearLines() {
+function clearLines(tspin) {
   let cleared = 0;
   for (let r = ROWS - 1; r >= 0; r--) {
     if (board[r].every(v => v !== 0)) {
@@ -130,13 +156,39 @@ function clearLines() {
       r++;
     }
   }
-  if (cleared) {
-    lines += cleared;
-    score += (LINE_SCORES[cleared] || 0) * level;
-    level = Math.floor(lines / 10) + 1;
-    dropInterval = Math.max(100, 1000 - (level - 1) * 90);
-    updateHUD();
+
+  if (cleared === 0) {
+    comboCount = -1;
+    if (tspin) {
+      score += Math.round(TSPIN_SCORES[0] * level);
+      updateHUD();
+      triggerEffects({ cleared: 0, tspin: true, b2bHit: false, combo: -1, perfectClear: false });
+    }
+    return;
   }
+
+  comboCount++;
+  const isHardClear = tspin || cleared === 4;
+  let base = (tspin ? TSPIN_SCORES[cleared] : LINE_SCORES[cleared]) * level;
+  const b2bHit = isHardClear && b2b;
+  if (b2bHit) base *= B2B_MULTIPLIER;
+  b2b = isHardClear;
+
+  let gained = Math.round(base);
+  if (comboCount > 0) gained += COMBO_BONUS * comboCount * level;
+  score += gained;
+
+  lines += cleared;
+  level = Math.floor(lines / 10) + 1;
+  dropInterval = Math.max(100, 1000 - (level - 1) * 90);
+
+  const perfectClear = board.every(row => row.every(v => v === 0));
+  if (perfectClear) {
+    score += Math.round(PERFECT_CLEAR_SCORES[cleared] * level);
+  }
+
+  updateHUD();
+  triggerEffects({ cleared, tspin, b2bHit, combo: comboCount, perfectClear });
 }
 
 function ghostY() {
@@ -147,6 +199,7 @@ function ghostY() {
 
 function hardDrop() {
   const gy = ghostY();
+  if (gy > current.y) lastMoveWasRotate = false;
   score += (gy - current.y) * 2;
   current.y = gy;
   lockPiece();
@@ -155,6 +208,7 @@ function hardDrop() {
 function softDrop() {
   if (!collide(current.shape, current.x, current.y + 1)) {
     current.y++;
+    lastMoveWasRotate = false;
     score += 1;
     updateHUD();
   } else {
@@ -163,14 +217,16 @@ function softDrop() {
 }
 
 function lockPiece() {
+  const tspin = isTSpin();
   merge();
-  clearLines();
+  clearLines(tspin);
   spawn();
 }
 
 function spawn() {
   current = next;
   next = randomPiece();
+  lastMoveWasRotate = false;
   if (collide(current.shape, current.x, current.y)) {
     endGame();
   }
@@ -181,6 +237,74 @@ function updateHUD() {
   scoreEl.textContent = score.toLocaleString();
   linesEl.textContent = lines;
   levelEl.textContent = level;
+  comboEl.textContent = comboCount > 0 ? `x${comboCount + 1}` : '-';
+}
+
+function getAudioCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+
+function playTone(freq, start, duration, type, gain) {
+  if (!soundEnabled) return;
+  const ctxA = getAudioCtx();
+  const osc = ctxA.createOscillator();
+  const gainNode = ctxA.createGain();
+  osc.type = type || 'sine';
+  osc.frequency.value = freq;
+  const t0 = ctxA.currentTime + start;
+  gainNode.gain.setValueAtTime(gain ?? 0.15, t0);
+  gainNode.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+  osc.connect(gainNode).connect(ctxA.destination);
+  osc.start(t0);
+  osc.stop(t0 + duration + 0.02);
+}
+
+function playSfx({ cleared, tspin, b2bHit, combo, perfectClear }) {
+  if (!soundEnabled) return;
+  if (perfectClear) {
+    [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => playTone(f, i * 0.09, 0.25, 'triangle', 0.18));
+    return;
+  }
+  if (tspin) playTone(220, 0, 0.14, 'sawtooth', 0.15);
+  if (b2bHit) {
+    playTone(392, 0.05, 0.15, 'square', 0.12);
+    playTone(523.25, 0.15, 0.18, 'square', 0.12);
+  }
+  const base = tspin ? 440 : (cleared === 4 ? 349.23 : 261.63);
+  const step = Math.max(combo, 0);
+  const freq = base * Math.pow(1.12, Math.min(step, 8));
+  playTone(freq, tspin || b2bHit ? 0.2 : 0, 0.15, 'sine', 0.15);
+}
+
+function showComboPopup(text, type) {
+  comboPopup.textContent = text;
+  comboPopup.className = 'combo-popup' + (type ? ' ' + type : '');
+  void comboPopup.offsetWidth; // reflow to restart animation
+  comboPopup.classList.add('show');
+}
+
+function flashBoard() {
+  boardWrap.classList.add('flash');
+  setTimeout(() => boardWrap.classList.remove('flash'), 500);
+}
+
+function triggerEffects({ cleared, tspin, b2bHit, combo, perfectClear }) {
+  const parts = [];
+  let type = 'combo';
+
+  if (tspin) { parts.push('T-SPIN'); type = 'tspin'; }
+  if (cleared === 4) parts.push('TETRIS');
+  if (b2bHit) { parts.push('BACK-TO-BACK'); type = 'b2b'; }
+  if (combo > 0) parts.push(`COMBO x${combo + 1}`);
+  if (perfectClear) { parts.push('PERFECT CLEAR!'); type = 'perfect'; }
+
+  if (parts.length === 0) parts.push(cleared === 1 ? 'LINE!' : `${cleared} LINES!`);
+
+  showComboPopup(parts.join(' '), type);
+  playSfx({ cleared, tspin, b2bHit, combo, perfectClear });
+  if (perfectClear) flashBoard();
 }
 
 function drawBlock(context, x, y, colorIndex, size, alpha) {
@@ -276,6 +400,7 @@ function loop(ts) {
     dropAccum = 0;
     if (!collide(current.shape, current.x, current.y + 1)) {
       current.y++;
+      lastMoveWasRotate = false;
     } else {
       lockPiece();
     }
@@ -293,6 +418,9 @@ function init() {
   gameOver = false;
   dropInterval = 1000;
   dropAccum = 0;
+  comboCount = -1;
+  b2b = false;
+  lastMoveWasRotate = false;
   lastTime = performance.now();
   next = randomPiece();
   spawn();
@@ -307,10 +435,10 @@ document.addEventListener('keydown', e => {
   if (paused || gameOver) return;
   switch (e.code) {
     case 'ArrowLeft':
-      if (!collide(current.shape, current.x - 1, current.y)) current.x--;
+      if (!collide(current.shape, current.x - 1, current.y)) { current.x--; lastMoveWasRotate = false; }
       break;
     case 'ArrowRight':
-      if (!collide(current.shape, current.x + 1, current.y)) current.x++;
+      if (!collide(current.shape, current.x + 1, current.y)) { current.x++; lastMoveWasRotate = false; }
       break;
     case 'ArrowDown':
       softDrop();
@@ -336,6 +464,14 @@ themeToggle.addEventListener('change', () => {
   draw();
   drawNext();
 });
+
+soundToggle.addEventListener('change', () => {
+  soundEnabled = soundToggle.checked;
+  localStorage.setItem(SOUND_STORAGE_KEY, soundEnabled ? 'on' : 'off');
+});
+
+soundEnabled = localStorage.getItem(SOUND_STORAGE_KEY) !== 'off';
+soundToggle.checked = soundEnabled;
 
 applyTheme(localStorage.getItem(THEME_STORAGE_KEY) === 'light' ? 'light' : 'dark');
 init();

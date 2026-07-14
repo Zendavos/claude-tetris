@@ -78,6 +78,52 @@ body.light {
   background: var(--board-bg);
   border-radius: 4px;
   box-shadow: 0 0 40px rgba(0, 0, 0, 0.6);
+  transition: box-shadow 0.15s;
+}
+
+.board-wrap {
+  position: relative;
+}
+
+.board-wrap.flash #board {
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.6), 0 0 0 3px #ffd54f, 0 0 30px 6px rgba(255, 213, 79, 0.6);
+}
+
+/* ---- Popup de combo / T-spin / B2B / Perfect Clear ---- */
+.combo-popup {
+  position: absolute;
+  top: 24px;
+  left: 50%;
+  transform: translate(-50%, 0);
+  font-weight: 800;
+  font-size: 18px;
+  letter-spacing: 1px;
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 5;
+  color: var(--value-color);
+  text-shadow: 0 0 12px rgba(0, 0, 0, 0.7);
+}
+
+.combo-popup.show {
+  animation: comboPop 0.9s ease-out;
+}
+
+.combo-popup.tspin { color: #ba68c8; }
+.combo-popup.b2b { color: #ffb74d; }
+.combo-popup.perfect {
+  color: #ffd54f;
+  font-size: 22px;
+}
+
+@keyframes comboPop {
+  0% { opacity: 0; transform: translate(-50%, 12px) scale(0.8); }
+  15% { opacity: 1; transform: translate(-50%, 0) scale(1.15); }
+  30% { transform: translate(-50%, 0) scale(1); }
+  75% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -14px) scale(0.9); }
 }
 
 /* ---- Panel lateral ---- */

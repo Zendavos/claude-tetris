@@ -10,13 +10,26 @@
   <div class="wrapper">
     <h1 class="game-title">TETRIS</h1>
     <div class="game-container">
-      <canvas id="board" width="300" height="600"></canvas>
+      <div class="board-wrap">
+        <canvas id="board" width="300" height="600"></canvas>
+        <div id="combo-popup" class="combo-popup"></div>
+      </div>
 
       <aside class="panel">
         <div class="panel-section theme-section">
           <span class="label">TEMA</span>
           <label class="theme-switch" for="theme-toggle">
             <input type="checkbox" id="theme-toggle" aria-label="Cambiar entre modo oscuro y claro" />
+            <span class="theme-switch-track">
+              <span class="theme-switch-thumb"></span>
+            </span>
+          </label>
+        </div>
+
+        <div class="panel-section theme-section">
+          <span class="label">SONIDO</span>
+          <label class="theme-switch" for="sound-toggle">
+            <input type="checkbox" id="sound-toggle" checked aria-label="Activar o silenciar los efectos de sonido" />
             <span class="theme-switch-track">
               <span class="theme-switch-thumb"></span>
             </span>
@@ -34,6 +47,10 @@
         <div class="panel-section">
           <span class="label">LEVEL</span>
           <span class="value" id="level">1</span>
+        </div>
+        <div class="panel-section">
+          <span class="label">COMBO</span>
+          <span class="value" id="combo">-</span>
         </div>
 
         <div class="panel-section">
