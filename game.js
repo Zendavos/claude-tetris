@@ -35,6 +35,18 @@ const COMBO_BONUS = 50;
 const B2B_MULTIPLIER = 1.5;
 const T_PIECE_TYPE = 3;
 
+const POWERUP_CHANCE = 0.5; //0.06;
+const POWERUP_SCORE = 150;
+const FREEZE_MS = 5000;
+const POWERUPS = {
+  bomb:    { label: 'BOMBA',    icon: '💣', color: '#ff5252' },
+  ray:     { label: 'RAYO',     icon: '⚡', color: '#ffee58' },
+  tint:    { label: 'TINTE',    icon: '🎨', color: '#4dd0e1' },
+  gravity: { label: 'GRAVEDAD', icon: '🌀', color: '#ab47bc' },
+  freeze:  { label: 'CONGELAR', icon: '❄️', color: '#64b5f6' },
+};
+const POWERUP_IDS = Object.keys(POWERUPS);
+
 const canvas = document.getElementById('board');
 const ctx = canvas.getContext('2d');
 const nextCanvas = document.getElementById('next-canvas');
@@ -54,6 +66,7 @@ const boardWrap = document.querySelector('.board-wrap');
 
 let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId;
 let comboCount, b2b, lastMoveWasRotate;
+let frozenUntil;
 let audioCtx, soundEnabled;
 let themeColors = { grid: '#22222e', highlight: 'rgba(255,255,255,0.12)' };
 
@@ -78,7 +91,15 @@ function createBoard() {
 
 const PIECE_WEIGHTS = [1, 1, 1, 1, 1, 1, 1, 0.2]; // Nut aparece con menor frecuencia
 
+function randomPowerUp() {
+  const powerup = POWERUP_IDS[Math.floor(Math.random() * POWERUP_IDS.length)];
+  const shape = [[1]];
+  return { type: 'powerup', powerup, shape, x: Math.floor(COLS / 2), y: 0 };
+}
+
 function randomPiece() {
+  if (Math.random() < POWERUP_CHANCE) return randomPowerUp();
+
   const totalWeight = PIECE_WEIGHTS.reduce((a, b) => a + b, 0);
   let r = Math.random() * totalWeight;
   let type = 0;
@@ -88,7 +109,7 @@ function randomPiece() {
   }
   type += 1;
   const shape = PIECES[type].map(row => [...row]);
-  return { type, shape, x: Math.floor(COLS / 2) - Math.floor(shape[0].length / 2), y: 0 };
+  return { type, shape, x: Math.floor(COLS / 2) - Math.floor(shape[0].length / 2), y: 0, powerup: null };
 }
 
 function collide(shape, ox, oy) {
@@ -217,10 +238,69 @@ function softDrop() {
 }
 
 function lockPiece() {
+  if (current.powerup) {
+    applyPowerUp(current);
+    spawn();
+    return;
+  }
   const tspin = isTSpin();
   merge();
   clearLines(tspin);
   spawn();
+}
+
+function applyPowerUp(piece) {
+  const { powerup, x, y } = piece;
+
+  switch (powerup) {
+    case 'bomb':
+      for (let r = y - 1; r <= y + 1; r++)
+        for (let c = x - 1; c <= x + 1; c++)
+          if (r >= 0 && r < ROWS && c >= 0 && c < COLS) board[r][c] = 0;
+      break;
+    case 'ray':
+      for (let c = 0; c < COLS; c++) board[y][c] = 0;
+      for (let r = 0; r < ROWS; r++) board[r][x] = 0;
+      break;
+    case 'tint': {
+      const counts = new Array(COLORS.length).fill(0);
+      for (let r = 0; r < ROWS; r++)
+        for (let c = 0; c < COLS; c++)
+          if (board[r][c]) counts[board[r][c]]++;
+      let target = 0;
+      for (let i = 1; i < counts.length; i++) if (counts[i] > counts[target]) target = i;
+      if (target) {
+        for (let r = 0; r < ROWS; r++)
+          for (let c = 0; c < COLS; c++)
+            if (board[r][c] === target) board[r][c] = 0;
+      }
+      break;
+    }
+    case 'gravity':
+      for (let c = 0; c < COLS; c++) {
+        const vals = [];
+        for (let r = 0; r < ROWS; r++) if (board[r][c]) vals.push(board[r][c]);
+        const pad = ROWS - vals.length;
+        for (let r = 0; r < ROWS; r++) board[r][c] = r < pad ? 0 : vals[r - pad];
+      }
+      break;
+    case 'freeze':
+      frozenUntil = performance.now() + FREEZE_MS;
+      break;
+  }
+
+  if (powerup !== 'freeze') {
+    score += POWERUP_SCORE;
+    // Only gravity can create new full rows (it repositions blocks within a
+    // column); bomb/ray/tint only remove blocks, so a clear check there would
+    // just risk resetting an active combo via clearLines(0)'s side effect.
+    if (powerup === 'gravity') clearLines(false);
+  }
+
+  updateHUD();
+  showComboPopup(`${POWERUPS[powerup].icon} ${POWERUPS[powerup].label}`, 'powerup');
+  playTone(330, 0, 0.12, 'square', 0.15);
+  playTone(494, 0.08, 0.16, 'square', 0.15);
 }
 
 function spawn() {
@@ -319,6 +399,20 @@ function drawBlock(context, x, y, colorIndex, size, alpha) {
   context.globalAlpha = 1;
 }
 
+function drawPowerUpBlock(context, x, y, powerup, size, alpha) {
+  const { color, icon } = POWERUPS[powerup];
+  context.globalAlpha = alpha ?? 1;
+  context.fillStyle = color;
+  context.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
+  context.fillStyle = themeColors.highlight;
+  context.fillRect(x * size + 1, y * size + 1, size - 2, 4);
+  context.font = `${Math.floor(size * 0.6)}px sans-serif`;
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.fillText(icon, x * size + size / 2, y * size + size / 2 + 1);
+  context.globalAlpha = 1;
+}
+
 function drawGrid() {
   ctx.strokeStyle = themeColors.grid;
   ctx.lineWidth = 0.5;
@@ -349,13 +443,18 @@ function draw() {
   const gy = ghostY();
   for (let r = 0; r < current.shape.length; r++)
     for (let c = 0; c < current.shape[r].length; c++)
-      if (current.shape[r][c])
-        drawBlock(ctx, current.x + c, gy + r, current.shape[r][c], BLOCK, 0.2);
+      if (current.shape[r][c]) {
+        if (current.powerup) drawPowerUpBlock(ctx, current.x + c, gy + r, current.powerup, BLOCK, 0.2);
+        else drawBlock(ctx, current.x + c, gy + r, current.shape[r][c], BLOCK, 0.2);
+      }
 
   // current piece
   for (let r = 0; r < current.shape.length; r++)
-    for (let c = 0; c < current.shape[r].length; c++)
-      drawBlock(ctx, current.x + c, current.y + r, current.shape[r][c], BLOCK);
+    for (let c = 0; c < current.shape[r].length; c++) {
+      if (!current.shape[r][c]) continue;
+      if (current.powerup) drawPowerUpBlock(ctx, current.x + c, current.y + r, current.powerup, BLOCK);
+      else drawBlock(ctx, current.x + c, current.y + r, current.shape[r][c], BLOCK);
+    }
 }
 
 function drawNext() {
@@ -365,8 +464,11 @@ function drawNext() {
   const offX = Math.floor((4 - shape[0].length) / 2);
   const offY = Math.floor((4 - shape.length) / 2);
   for (let r = 0; r < shape.length; r++)
-    for (let c = 0; c < shape[r].length; c++)
-      drawBlock(nextCtx, offX + c, offY + r, shape[r][c], NB);
+    for (let c = 0; c < shape[r].length; c++) {
+      if (!shape[r][c]) continue;
+      if (next.powerup) drawPowerUpBlock(nextCtx, offX + c, offY + r, next.powerup, NB);
+      else drawBlock(nextCtx, offX + c, offY + r, shape[r][c], NB);
+    }
 }
 
 function endGame() {
@@ -395,14 +497,17 @@ function loop(ts) {
   if (gameOver || paused) return;
   const dt = ts - lastTime;
   lastTime = ts;
-  dropAccum += dt;
-  if (dropAccum >= dropInterval) {
-    dropAccum = 0;
-    if (!collide(current.shape, current.x, current.y + 1)) {
-      current.y++;
-      lastMoveWasRotate = false;
-    } else {
-      lockPiece();
+  const frozen = performance.now() < frozenUntil;
+  if (!frozen) {
+    dropAccum += dt;
+    if (dropAccum >= dropInterval) {
+      dropAccum = 0;
+      if (!collide(current.shape, current.x, current.y + 1)) {
+        current.y++;
+        lastMoveWasRotate = false;
+      } else {
+        lockPiece();
+      }
     }
   }
   draw();
@@ -421,6 +526,7 @@ function init() {
   comboCount = -1;
   b2b = false;
   lastMoveWasRotate = false;
+  frozenUntil = 0;
   lastTime = performance.now();
   next = randomPiece();
   spawn();

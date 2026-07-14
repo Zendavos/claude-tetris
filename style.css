@@ -113,6 +113,7 @@ body.light {
 
 .combo-popup.tspin { color: #ba68c8; }
 .combo-popup.b2b { color: #ffb74d; }
+.combo-popup.powerup { color: #64b5f6; font-size: 20px; }
 .combo-popup.perfect {
   color: #ffd54f;
   font-size: 22px;
