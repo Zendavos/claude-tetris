@@ -35,7 +35,7 @@ const COMBO_BONUS = 50;
 const B2B_MULTIPLIER = 1.5;
 const T_PIECE_TYPE = 3;
 
-const POWERUP_CHANCE = 0.5; //0.06;
+const POWERUP_CHANCE = 0.06;
 const POWERUP_SCORE = 150;
 const FREEZE_MS = 5000;
 const POWERUPS = {
@@ -430,11 +430,13 @@ function drawPowerUpBlock(context, x, y, powerup, size, alpha) {
   // icono siempre 100% opaco para que sea legible (incluso sobre el ghost)
   context.globalAlpha = 1;
   // disco oscuro detrás del icono para que contraste sobre el arcoíris
-  context.fillStyle = 'rgba(0, 0, 0, 0.55)';
+  context.fillStyle = 'rgba(0, 0, 0, 1)';
   context.beginPath();
-  context.arc(cx, cy, size * 0.34, 0, Math.PI * 2);
+  //controla el tamaño del circulo de fondo del icono
+  context.arc(cx, cy, size * 0.45, 0, Math.PI * 2);
   context.fill();
-  context.font = `${Math.floor(size * 0.5)}px sans-serif`;
+  //controla el tamaño del icono
+  context.font = `${Math.floor(size * 0.7)}px sans-serif`;
   context.textAlign = 'center';
   context.textBaseline = 'middle';
   context.shadowColor = 'rgba(0, 0, 0, 0.8)';
